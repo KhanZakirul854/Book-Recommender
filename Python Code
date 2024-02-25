@@ -1,0 +1,206 @@
+# importing the necessary libraries
+import numpy as np
+import pandas as pd 
+
+# read the csv files
+books = pd.read_csv("books.csv")
+users = pd.read_csv("users.csv")
+ratings = pd.read_csv("ratings.csv")
+
+print(books.shape)
+print(users.shape)
+print(ratings.shape)
+
+books.head()
+users.head()
+ratings.head()
+
+
+ratings.isnull().sum()
+books.isnull().sum()
+users.isnull().sum()
+
+books.duplicated().sum()
+ratings.duplicated().sum()
+users.duplicated().sum()
+
+
+#Popularity Based Recommendation System
+
+#merged the rating dataset with the books dataset based on the ISBN
+ratings.merge(books,on='ISBN')
+
+ratings.merge(books,on='ISBN').shape
+
+#Created the dataframe-ratinngs_and_name to store the merged data.
+ratings_and_name=ratings.merge(books,on='ISBN')
+
+ratings_and_name
+
+# used groupby on book-title to count how many votes each book has got in ratings_and_name dataset
+# the new dataframe num-rating has the number of votes each book has got
+
+num_rating_df = ratings_and_name.groupby('Book-Title').count()['Book-Rating'].reset_index()
+num_rating_df.rename(columns={'Book-Rating': 'num-ratings'}, inplace=True)
+num_rating_df
+
+# Assuming 'Book-Rating' column needs to be cleaned
+ratings_and_name['Book-Rating'] = pd.to_numeric(ratings_and_name['Book-Rating'], errors='coerce')
+
+# Drop rows with NaN values in the 'Book-Rating' column
+ratings_and_name.dropna(subset=['Book-Rating'], inplace=True)
+
+# Group by 'Book-Title' and calculate the mean of 'Book-Rating'
+avg_rating_df = ratings_and_name.groupby('Book-Title')['Book-Rating'].mean().reset_index()
+
+# Rename the column to 'avg-ratings'
+avg_rating_df.rename(columns={'Book-Rating': 'avg-ratings'}, inplace=True)
+
+# Display the resulting DataFrame
+avg_rating_df
+
+
+popularity_df = num_rating_df.merge(avg_rating_df,on='Book-Title')
+popularity_df
+
+#merged number of votes/ratings and average ratings on the common column book-title creating new dataframe popularity_df
+
+popularity_df[popularity_df['num-ratings'] >= 250]
+
+# Filtering the rows/books which has at least 250 votes on them.
+
+pd.set_option('display.max_rows', None)
+popularity_df[popularity_df['num-ratings'] >= 250]
+
+# Just to check the whole dataset.
+
+popularity_df[popularity_df['num-ratings'] >= 250].sort_values('avg-ratings', ascending=False).head(50)
+
+# sorted by average rating
+
+# Merge the data frames
+merged_df = popularity_df.merge(books, on='Book-Title')
+
+# Drop duplicates based on 'Book-Title'
+unique_books_df = merged_df.drop_duplicates('Book-Title')
+
+# Filter the books with 250 or more ratings
+top_rated_books = unique_books_df[unique_books_df['num-ratings'] >= 250].head(50)
+
+# Check the shape of the resulting data frame
+print("Shape of the top 50 books with 250 or more ratings: ", top_rated_books.shape)
+top_rated_books
+top_rated_books.shape
+
+# Select the desired columns
+selected_columns = ['Book-Title', 'Book-Author', 'Image-URL-M', 'num-ratings', 'avg-ratings']
+
+# Create a new dataset with the selected columns
+selected_books_dataset = top_rated_books[selected_columns]
+
+# Display the resulting dataset
+selected_books_dataset
+
+selected_books_dataset.shape
+selected_books_dataset.isnull().sum()
+
+
+# Code of to check if the link of the images are working:
+if not selected_books_dataset.empty:
+    image_url = selected_books_dataset['Image-URL-M'].iloc[0]
+    print(image_url)
+else:
+    print("The DataFrame is empty.")
+
+
+
+## Collaborative Filtering Based Recommender System
+
+ratings_and_name
+#the merged dataset on book rating and title
+
+x = ratings_and_name.groupby('User-ID').count()['Book-Rating'] > 200 #FALSE on those users who didn't vote for more than 200 books
+x[x]  
+#Basically choosing the users who have voted more than 200 books. 
+
+active_users = x[x].index
+# Saving those users in active_users dataset
+
+ratings_and_name[ratings_and_name['User-ID'].isin(active_users)]
+#filtering the users who are in my active_users dataframe
+
+filtered_rating = ratings_and_name[ratings_and_name['User-ID'].isin(active_users)]
+#Stored the indices of the users in a dataframe called filtered rating
+
+filtered_rating.groupby('Book-Title').count()['Book-Rating']
+# wanted to see which book has how many ratings/votes 
+
+
+y = filtered_rating.groupby('Book-Title').count()['Book-Rating'] > 50 #filtering the books with more than 50 ratings
+famous_books = y[y].index #books with more than 50 ratings
+famous_books
+
+filtered_rating[filtered_rating['Book-Title'].isin(famous_books)] 
+# filtering book title which are present in the famous books
+
+
+final_ratings = filtered_rating[filtered_rating['Book-Title'].isin(famous_books)]
+final_ratings
+# Stored them in final_ratings
+
+final_ratings.drop_duplicates() 
+#check again for the duplicates
+
+pt = final_ratings.pivot_table(index = 'Book-Title', columns = 'User-ID', values = 'Book-Rating')
+pt # final table where the rows are books with >50 votes, and the columns are users who have give >200 votes 
+
+pt.fillna(0, inplace=True)
+pt 
+#filling the na places with 0
+
+similarity_scores = cosine_similarity(pt)
+#calculated the cosine similarity score between all pairs of items (books) in the pivot table
+
+similarity_scores
+#displaying the cosine similarities scores between all pairs.
+
+similarity_scores.shape
+
+similarity_scores[0] #distance with each book from 1984.
+
+list(enumerate(similarity_scores[0])) #Distaance between the book at index 1, to every other book
+sorted(list(enumerate(similarity_scores[0])), key=lambda x:x[1], reverse = True)[1:6] # The sorted list to find the most matching score
+
+
+def recommend(book_name):
+    # Fetch the index
+    index = np.where(pt.index == book_name)[0][0]
+    
+    # Get similar items
+    similar_items = sorted(list(enumerate(similarity_scores[index])), key=lambda x: x[1], reverse=True)[1:6] #calculated the similarity score & store them 
+    
+   
+
+    data = []
+    for i in similar_items:
+        item=[]
+        temp_df = books[books['Book-Title']==pt.index[i[0]]]
+        item.extend(list(temp_df.drop_duplicates('Book-Title')['Book-Title'].values))
+        item.extend(list(temp_df.drop_duplicates('Book-Title')['Book-Author'].values))
+        item.extend(list(temp_df.drop_duplicates('Book-Title')['Image-URL-M'].values))
+
+        data.append(item)
+
+    return data
+
+
+recommend('Any Book Name from the Dataset')
+
+
+
+
+
+
+
+
+
